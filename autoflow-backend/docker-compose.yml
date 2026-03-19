@@ -1,0 +1,132 @@
+# AutoFlow Pro — Docker Compose
+# One command brings up: app + campaign worker + media worker + MongoDB + Redis
+# Usage:
+#   docker-compose up            # foreground
+#   docker-compose up -d         # background
+#   docker-compose logs -f app   # stream app logs
+#   docker-compose down -v       # stop + remove volumes
+
+version: '3.9'
+
+services:
+
+  # ── MongoDB ────────────────────────────────────────────────────────────────
+  mongo:
+    image: mongo:7.0
+    container_name: autoflow_mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: autoflow
+      MONGO_INITDB_ROOT_PASSWORD: autoflow_secret
+      MONGO_INITDB_DATABASE:      autoflow
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis ──────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7.2-alpine
+    container_name: autoflow_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── Web (API server) ───────────────────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: autoflow_app
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      NODE_ENV:         development
+      PORT:             5000
+      MONGODB_URI:      mongodb://autoflow:autoflow_secret@mongo:27017/autoflow?authSource=admin
+      REDIS_URL:        redis://redis:6379
+      JWT_SECRET:       change_this_in_production_64_char_hex
+      REFRESH_TOKEN_SECRET: change_this_refresh_secret
+      FRONTEND_URL:     http://localhost:5173
+      BASE_URL:         http://localhost:5000
+    volumes:
+      - ./sessions:/app/sessions
+      - ./uploads:/app/uploads
+      - ./logs:/app/logs
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
+
+  # ── Campaign Worker ────────────────────────────────────────────────────────
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: autoflow_worker
+    restart: unless-stopped
+    command: node workers/campaign.worker.js
+    environment:
+      NODE_ENV:    development
+      MONGODB_URI: mongodb://autoflow:autoflow_secret@mongo:27017/autoflow?authSource=admin
+      REDIS_URL:   redis://redis:6379
+      JWT_SECRET:  change_this_in_production_64_char_hex
+    volumes:
+      - ./sessions:/app/sessions
+      - ./uploads:/app/uploads
+      - ./logs:/app/logs
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # ── Media Worker ───────────────────────────────────────────────────────────
+  media:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: autoflow_media
+    restart: unless-stopped
+    command: node workers/media.worker.js
+    environment:
+      NODE_ENV:    development
+      MONGODB_URI: mongodb://autoflow:autoflow_secret@mongo:27017/autoflow?authSource=admin
+      REDIS_URL:   redis://redis:6379
+    volumes:
+      - ./uploads:/app/uploads
+      - ./logs:/app/logs
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  mongo_data:
+  redis_data:
+
+networks:
+  default:
+    name: autoflow_net

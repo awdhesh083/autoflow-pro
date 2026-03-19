@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+
+    <!-- PWA -->
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#00d4ff" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="AutoFlow" />
+
+    <!-- SEO -->
+    <title>AutoFlow Pro — Marketing Automation Suite</title>
+    <meta name="description" content="14-platform social media automation. WhatsApp bulk sender, email campaigns, AI content, CRM, analytics." />
+    <meta name="robots" content="noindex, nofollow" />
+
+    <!-- Open Graph -->
+    <meta property="og:title"       content="AutoFlow Pro" />
+    <meta property="og:description" content="14-platform marketing automation suite" />
+    <meta property="og:type"        content="website" />
+
+    <!-- App icons (place in public/) -->
+    <link rel="icon"             type="image/png" sizes="32x32" href="/icon-32.png" />
+    <link rel="apple-touch-icon" sizes="192x192"                href="/icon-192.png" />
+
+    <!-- Fonts: Syne (UI) + JetBrains Mono (code) + Noto Sans Devanagari (Hindi) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+Devanagari:wght@400;600;700&display=swap" rel="stylesheet" />
+
+    <!-- Socket.io client (required for real-time features) -->
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js" crossorigin="anonymous"></script>
+
+    <style>
+      /* Prevent FOUC — match dark theme bg immediately */
+      html, body { margin: 0; padding: 0; background: #03050e; }
+      #root { min-height: 100vh; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

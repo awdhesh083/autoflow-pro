@@ -1,0 +1,3 @@
+web: node server.js
+worker: node workers/campaign.worker.js
+media: node workers/media.worker.js

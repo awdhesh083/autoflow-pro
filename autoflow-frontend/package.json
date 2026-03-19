@@ -1,0 +1,22 @@
+{
+  "name": "autoflow-pro-frontend",
+  "version": "5.0.0",
+  "private": true,
+  "description": "AutoFlow Pro — 14-Platform Marketing Automation Suite",
+  "scripts": {
+    "dev":     "vite",
+    "build":   "vite build",
+    "preview": "vite preview",
+    "lint":    "eslint src --ext .js,.jsx"
+  },
+  "dependencies": {
+    "react":     "^18.3.1",
+    "react-dom": "^18.3.1",
+    "recharts":  "^2.12.7"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "vite":                 "^5.4.2",
+    "eslint":               "^8.57.0"
+  }
+}
