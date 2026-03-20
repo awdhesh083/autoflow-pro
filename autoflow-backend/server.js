@@ -129,6 +129,7 @@ app.use('/',        express.static(path.join(__dirname, 'public')));  // PWA ass
 
 // ── Health check ──────────────────────────────────────────────────────────
 app.get('/health', async (_req, res) => {
+  res.status(200).json({ status: 'ok' });
   try {
     // Check MongoDB
     const mongoReady = require('mongoose').connection.readyState === 1;
@@ -226,7 +227,8 @@ app.use(errorHandler);
 
 // ── Start — AFTER all routes ──────────────────────────────────────────────
 const PORT = parseInt(process.env.PORT) || 5000;
-server.listen(PORT, () => {
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
   logger.info(`🚀  AutoFlow v4.0  →  port ${PORT}  (${process.env.NODE_ENV || 'development'})`);
   logger.info(`🔗  API: http://localhost:${PORT}/api/v1`);
   logger.info(`💡  Health: http://localhost:${PORT}/health`);
