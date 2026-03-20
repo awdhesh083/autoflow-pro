@@ -93,6 +93,7 @@ const io     = new Server(server, {
   transports: ['websocket','polling'],
 });
 
+//  Initiate connections (they start in background - health check verifies)
 connectDB();
 connectRedis();
 
@@ -108,7 +109,10 @@ app.use(mongoSanitize());
 app.use(i18nMiddleware);   // detect Accept-Language header
 app.use(xss());
 app.use(hpp());
-app.use(compression());
+app.use(compression({ 
+  level: 6,        // Balance CPU vs compression (1-9, default 6)
+  threshold: 1024  // Only compress >1KB responses
+}));
 app.use(globalLimiter);
 
 // ── Body parsers  (raw must come BEFORE json for Stripe/Shopify webhooks) ─
@@ -124,12 +128,29 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/',        express.static(path.join(__dirname, 'public')));  // PWA assets
 
 // ── Health check ──────────────────────────────────────────────────────────
-app.get('/health', (_req, res) => res.json({
-  status: 'ok', version: '4.0.0',
-  uptime: Math.round(process.uptime()),
-  timestamp: new Date().toISOString(),
-  services: { database: 'connected', redis: 'connected', queue: 'running' },
-}));
+app.get('/health', async (_req, res) => {
+  try {
+    // Check MongoDB
+    const mongoReady = require('mongoose').connection.readyState === 1;
+    if (!mongoReady) return res.status(503).json({ status: 'error', reason: 'MongoDB not ready' });
+
+    // Check Redis
+    const { isRedisReady } = require('./config/redis');
+    if (!isRedisReady()) {
+      return res.status(503).json({ status: 'error', reason: 'Redis not connected' });
+    }
+
+    res.json({
+      status: 'ok', version: '4.0.0',
+      uptime: Math.round(process.uptime()),
+      timestamp: new Date().toISOString(),
+      services: { database: 'connected', redis: 'connected', queue: 'running' },
+    });
+  } catch (err) {
+    logger.error(`Health check error: ${err.message}`);
+    res.status(503).json({ status: 'error', reason: err.message });
+  }
+});
 
 // ── API Routes — ALL registered before server.listen() ───────────────────
 const V1 = '/api/v1';
