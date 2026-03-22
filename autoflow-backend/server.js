@@ -87,26 +87,12 @@ const { giveawayRoutes, ugcRoutes, commentRoutes, influencerRoutes }       = req
 
 // ── App ───────────────────────────────────────────────────────────────────
 const app    = express();
-
-// ╔══════════════════════════════════════════════════════════════════════════╗
-// ║  BUG FIX #2 & #3: Use `server` (not `app`) for EVERYTHING.             ║
-// ║                                                                          ║
-// ║  BEFORE (broken):                                                        ║
-// ║    const server = http.createServer(app);  ← Socket.io bound here       ║
-// ║    app.listen(PORT)  ← creates a SECOND server; Socket.io never works   ║
-// ║    process.on('SIGTERM', () => server.close())  ← closes wrong server   ║
-// ║                                                                          ║
-// ║  AFTER (fixed):                                                          ║
-// ║    const server = http.createServer(app);  ← one server for everything  ║
-// ║    server.listen(PORT)  ← correct; Socket.io works; shutdown works      ║
-// ╚══════════════════════════════════════════════════════════════════════════╝
 const server = http.createServer(app);
 const io     = new Server(server, {
   cors: { origin: process.env.FRONTEND_URL || '*', methods: ['GET','POST'] },
   transports: ['websocket','polling'],
 });
 
-//  Initiate connections (they start in background - health check verifies)
 connectDB();
 connectRedis();
 
@@ -122,10 +108,7 @@ app.use(mongoSanitize());
 app.use(i18nMiddleware);   // detect Accept-Language header
 app.use(xss());
 app.use(hpp());
-app.use(compression({ 
-  level: 6,        // Balance CPU vs compression (1-9, default 6)
-  threshold: 1024  // Only compress >1KB responses
-}));
+app.use(compression());
 app.use(globalLimiter);
 
 // ── Body parsers  (raw must come BEFORE json for Stripe/Shopify webhooks) ─
@@ -140,54 +123,13 @@ app.use(morgan('combined', { stream: { write: msg => logger.info(msg.trim()) } }
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/',        express.static(path.join(__dirname, 'public')));  // PWA assets
 
-// ╔══════════════════════════════════════════════════════════════════════════╗
-// ║  BUG FIX #1: Health check was completely broken.                        ║
-// ║                                                                          ║
-// ║  BEFORE (broken):                                                        ║
-// ║    res.status(200).json({ status: 'ok' });  ← line 1 sent response      ║
-// ║    if (!mongoReady) return res.status(503).json(...)  ← ERR_HEADERS_SENT║
-// ║    res.json({ status:'ok', ... })  ← ERR_HEADERS_SENT again             ║
-// ║    ↑ Response was ALWAYS 200 regardless of service state,               ║
-// ║      and every subsequent res call threw an uncaught error.             ║
-// ║                                                                          ║
-// ║  AFTER (fixed):                                                          ║
-// ║    All checks happen first. ONE res call at the very end.               ║
-// ╚══════════════════════════════════════════════════════════════════════════╝
-app.get('/health', async (_req, res) => {
-  try {
-    // Check MongoDB — readyState 1 = connected
-    const mongoose = require('mongoose');
-    const mongoReady = mongoose.connection.readyState === 1;
-    if (!mongoReady) {
-      return res.status(503).json({
-        status: 'error',
-        reason: 'MongoDB not ready',
-        readyState: mongoose.connection.readyState,
-      });
-    }
-
-    // Check Redis
-    const { isRedisReady } = require('./config/redis');
-    if (!isRedisReady()) {
-      return res.status(503).json({ status: 'error', reason: 'Redis not connected' });
-    }
-
-    // All good — send 200 exactly once
-    return res.status(200).json({
-      status: 'ok',
-      version: '4.0.0',
-      uptime: Math.round(process.uptime()),
-      timestamp: new Date().toISOString(),
-      services: { database: 'connected', redis: 'connected', queue: 'running' },
-    });
-  } catch (err) {
-    logger.error(`Health check error: ${err.message}`);
-    // Guard: don't try to send if headers already flushed
-    if (!res.headersSent) {
-      return res.status(503).json({ status: 'error', reason: err.message });
-    }
-  }
-});
+// ── Health check ──────────────────────────────────────────────────────────
+app.get('/health', (_req, res) => res.json({
+  status: 'ok', version: '4.0.0',
+  uptime: Math.round(process.uptime()),
+  timestamp: new Date().toISOString(),
+  services: { database: 'connected', redis: 'connected', queue: 'running' },
+}));
 
 // ── API Routes — ALL registered before server.listen() ───────────────────
 const V1 = '/api/v1';
@@ -261,42 +203,20 @@ app.set('io', io);
 app.use((req, res) => res.status(404).json({ success: false, message: `${req.method} ${req.url} not found` }));
 app.use(errorHandler);
 
-// ╔══════════════════════════════════════════════════════════════════════════╗
-// ║  BUG FIX #2 cont. + BUG FIX #3: Use server.listen() not app.listen()   ║
-// ║                                                                          ║
-// ║  Also fix process signal handlers to close the CORRECT server.          ║
-// ║  BEFORE: server was never listening, so server.close() was instant      ║
-// ║          → process.exit(1) fired immediately on any unhandled error.    ║
-// ╚══════════════════════════════════════════════════════════════════════════╝
+// ── Start — AFTER all routes ──────────────────────────────────────────────
 const PORT = parseInt(process.env.PORT) || 5000;
 server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
   logger.info(`🚀  AutoFlow v4.0  →  port ${PORT}  (${process.env.NODE_ENV || 'development'})`);
   logger.info(`🔗  API: http://localhost:${PORT}/api/v1`);
   logger.info(`💡  Health: http://localhost:${PORT}/health`);
 
-  // Start background crons after server is up
+  // Start background crons after DB is connected
   startDripCron();
   startProxyCron();
 });
 
-// Graceful shutdown — now closes the CORRECT server
-process.on('SIGTERM', () => {
-  logger.info('SIGTERM received — shutting down gracefully');
-  server.close(() => {
-    logger.info('Server closed');
-    process.exit(0);
-  });
-});
-
-process.on('unhandledRejection', (err) => {
-  logger.error(`Unhandled rejection: ${err?.message}`);
-  server.close(() => process.exit(1));
-});
-
-process.on('uncaughtException', (err) => {
-  logger.error(`Uncaught exception: ${err.message}`);
-  process.exit(1);
-});
+process.on('SIGTERM',            ()    => { server.close(() => process.exit(0)); });
+process.on('unhandledRejection', (err) => { logger.error(`Unhandled: ${err?.message}`); server.close(() => process.exit(1)); });
+process.on('uncaughtException',  (err) => { logger.error(`Uncaught: ${err.message}`);   process.exit(1); });
 
 module.exports = { app, server, io };

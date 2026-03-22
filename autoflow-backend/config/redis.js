@@ -2,35 +2,23 @@ const { createClient } = require('redis');
 const logger = require('../utils/logger');
 
 let client;
-let isConnected = false;
 
 const connectRedis = async () => {
   try {
-    client = createClient({ 
-      url: process.env.REDIS_URL || 'redis://localhost:6379',
-      socket: { reconnectStrategy: (retries) => Math.min(retries * 200, 3000) }
-      // Backoff: 200ms, 400ms, 600ms, 800ms, 1000ms, 1200ms, 1400ms, 1600ms, 1800ms, 2000ms, 2200ms, 2400ms, 2600ms, 2800ms, 3000ms...
+    client = createClient({ url: process.env.REDIS_URL || 'redis://localhost:6379' });
 
-    });
-
-    client.on('error',    (err) => logger.error(`Redis error: ${err.message}`));
-    client.on('connect',  ()    => { isConnected = true; logger.info('✅ Redis connected'); });
-    client.on('ready',    ()    => { isConnected = true; logger.info('✅ Redis ready'); });
-    client.on('disconnect', () => { isConnected = false; logger.warn('Redis disconnected'); });
+    client.on('error',        (err) => logger.error(`Redis error: ${err.message}`));
+    client.on('connect',      ()    => logger.info('✅ Redis connected'));
+    client.on('reconnecting', ()    => logger.warn('Redis reconnecting...'));
 
     await client.connect();
-    isConnected = true;
-    logger.info('✅ Redis client connected');
   } catch (err) {
-    logger.error(`🔴 Redis connection failed: ${err.message} - Health checks will fail until Redis is available`);
-    isConnected = false;
-    // Don't throw - let startup continue, but health checks will fail
-    // This gives Railway time to restart or for Redis to come online
+    logger.warn(`Redis connection failed (continuing without cache): ${err.message}`);
+    client = null;
   }
 };
 
 const getRedis = () => client;
-const isRedisReady = () => isConnected && client && client.isOpen;
 
 const cache = {
   async get(key) {
@@ -59,5 +47,4 @@ const cache = {
 
 module.exports = connectRedis;
 module.exports.getRedis = getRedis;
-module.exports.isRedisReady = isRedisReady;
-module.exports.cache = cache;
+module.exports.cache    = cache;
